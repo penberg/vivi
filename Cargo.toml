@@ -1,0 +1,12 @@
+[package]
+name = "vivi"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "vivi"
+path = "main.rs"
+
+[dependencies]
+ratatui = "0.30.2"
+serde_json = "1.0.151"
