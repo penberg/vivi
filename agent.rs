@@ -538,6 +538,18 @@ pub mod tests {
     }
 
     #[test]
+    fn asking_with_unwritten_deletes_is_refused() {
+        // The agent works on the file as it is on disk; deletes it cannot see
+        // would be silently lost when its rewrite is reloaded.
+        let mut app = app("one\ntwo");
+        app.delete_lines((0, 0));
+        app.ask_agent((0, 0), "explain");
+        assert!(app.job.is_none());
+        let (text, is_error) = app.message.clone().unwrap();
+        assert!(is_error && text.contains(":w them first"), "{text}");
+    }
+
+    #[test]
     fn asking_without_an_agent_reports_an_error_instead_of_hanging() {
         let mut app = app("code");
         temp_env(&[("PATH", "/nonexistent"), ("VIVI_AGENT", "")], || {

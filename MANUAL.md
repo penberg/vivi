@@ -5,6 +5,7 @@ Everything `vivi` responds to. See [README.md](README.md) for what it is and why
 - [Starting up](#starting-up)
 - [Modes](#modes)
 - [Moving around](#moving-around)
+- [Deleting lines](#deleting-lines)
 - [Ex commands](#ex-commands)
 - [Ranges](#ranges)
 - [Asking an agent](#asking-an-agent)
@@ -31,8 +32,9 @@ its name. A filename that does not exist opens an empty buffer and reports
 a viewer you cannot type into, a missing file is a dead end you want to notice
 rather than a blank page you mistake for an empty file.
 
-The buffer is read-only. There is no insert mode and nothing writes the file
-except the agent.
+There is no insert mode: the agent is how text gets written. The one edit
+`vivi` makes itself is deleting lines — see
+[Deleting lines](#deleting-lines) — and `:w` is what puts a delete on disk.
 
 Output that is not a terminal — a pipe, a cron job — is reported as an ordinary
 error rather than a panic. The language server, if one is known for the file
@@ -43,7 +45,7 @@ type, is started here too; see [Language servers](#language-servers).
 | Mode | Entered by | Left by |
 | --- | --- | --- |
 | Normal | the default | — |
-| Visual Line | `V` or `v` | `Esc`, `V`, `v`, or running a command |
+| Visual Line | `V` or `v` | `Esc`, `V`, `v`, `d` (deleting it), or running a command |
 | Command | `:` | `Enter` runs it, `Esc` cancels, `Backspace` on an empty line cancels |
 | Output | `:output` or `Ctrl-W w` for the agent's reply, `:help` or `:messages` for a document | `q` or `Esc`, and `Ctrl-W w` / `Ctrl-W c` for the agent pane |
 
@@ -95,6 +97,29 @@ boundary between `foo` and `(`.
 The cursor keeps a *wanted column*: move down through a short line and back into
 a long one, and it returns to where it was, exactly like vi.
 
+## Deleting lines
+
+| Key / command | Does |
+| --- | --- |
+| `dd` | delete the current line |
+| `d` | in a selection, delete the selected lines |
+| `:delete` / `:d` | delete the range, defaulting to the current line |
+| `:write` / `:w` | write the buffer back to the file |
+
+Deleting is linewise, like selection. A delete changes only the buffer: `:w`
+writes it to disk, and until then `[+]` on the status line marks the buffer
+as ahead of the file. There is no undo — `:reload!` re-reads the file, which
+discards every unwritten delete, and `:q!` quits without them. Deleting more
+than one line reports `3 fewer lines`; deleting every line leaves a single
+empty one, as vi does.
+
+The agent and unwritten deletes do not mix, in either direction. While an
+agent is working a delete is refused with `an agent is still working`: it may
+be about to rewrite the very lines you are deleting. And `:edit` with
+unwritten deletes is refused with `no write since last change — :w them
+first`: the agent works on the file as it is on disk, so deletes it cannot
+see would be silently lost when its rewrite is reloaded.
+
 ## Ex commands
 
 Every command has a full name and, where it earns one, a short alias. Both
@@ -105,6 +130,8 @@ spellings are equivalent — `:edit` and `:e` are the same command.
 | `:<line>` | | jump to a line (`:42`, `:$`, `:'>`) |
 | `:quit` | `:q` | quit |
 | `:edit <prompt>` | `:e` | have the agent edit the range |
+| `:delete` | `:d` | delete the range, defaulting to the current line |
+| `:write` | `:w` | write the buffer to the file |
 | `:definition` | `:def` | jump to the definition under the cursor (same as `gd`) |
 | `:pop` | `:po` | unwind one level of the tag stack (same as `Ctrl-T`) |
 | `:tag <file>[:<line>[:<col>]]` | `:ta` | jump to a location, no language server involved |
@@ -115,8 +142,10 @@ spellings are equivalent — `:edit` and `:e` are the same command.
 | `:messages` | `:mes` | every message so far, errors included |
 | `:help` | `:h` | keys and commands, from the same tables that implement them |
 
-A trailing `!` is accepted on any command and never means anything — nothing
-here can have unsaved changes — so `:q` and `:q!` are the same.
+A trailing `!` forces. With unwritten deletes in the buffer, `:q` and
+`:reload` refuse with `no write since last change`, and `:q!` and `:reload!`
+discard the deletes and go ahead. On every other command the `!` is accepted
+and means nothing, so old muscle memory stays harmless.
 
 **`:edit` is the agent, not vi's re-edit.** In `vivi` the agent is the editing
 mechanism, so `:edit <prompt>` is how you change the file, and the command that
@@ -135,7 +164,8 @@ that does not exist.
 
 ## Ranges
 
-Any command may be prefixed with a range. `:edit` is the one that uses it.
+Any command may be prefixed with a range. `:edit` and `:delete` are the ones
+that use it.
 
 | Range | Means |
 | --- | --- |
@@ -328,7 +358,7 @@ These are all dimmed, not red, because none of them is a failure:
 | `nothing to go back to` | `Ctrl-T` with an empty tag stack |
 | `no output to show` | `Ctrl-W w` or `:output` with no pane |
 | `no symbol under the cursor` | `gd` on whitespace or punctuation |
-| `an agent is still working` | `:edit` while one is running |
+| `an agent is still working` | `:edit` or a delete while one is running |
 
 Red is kept for mistakes (`not an editor command`, `argument required`) and for
 things that actually broke (a file that will not open, a language server that
@@ -403,6 +433,11 @@ The cursor is kept where it can still go — clamped to the new last line and to
 the new length of its line — and the status line says `"main.rs" reloaded`.
 `:reload` forces a re-read.
 
+With unwritten deletes in the buffer the re-read would silently discard them,
+so it does not happen: the status line says `file changed on disk — :reload!
+takes it, :w overwrites it`, once, and the choice is yours. `:reload` alone
+refuses for the same reason the automatic reload did.
+
 ## The status line
 
 The status line is one row, always the last one, with two columns of air at each
@@ -414,6 +449,7 @@ up:
 | Segment | Side | When |
 | --- | --- | --- |
 | `src/main.rs:42` | left | always — the file you are in and the line you are on |
+| `[+]` | left | the buffer holds deletes not yet written with `:w`, in bold |
 | `3 lines` | left | while a selection is up, in bold |
 | a message | left | until something replaces it; errors in the terminal's own red |
 | `⠹ symbols` | right | the language server is starting, indexing, or answering a jump |
@@ -466,7 +502,8 @@ no message at all. `Esc` dismisses one.
 
 ## Limitations
 
-- Read-only: no insert mode, no `:w`, no undo.
+- No insert mode, and no undo — `:reload!` is the way back to what is on
+  disk. The only edits are the agent's and deleting lines.
 - One file at a time, named on the command line — no buffer list, and no empty
   unnamed buffer. A jump replaces the buffer; the tag stack is how you get back.
   The only split is the agent's pane, and it is not another file.

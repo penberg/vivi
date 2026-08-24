@@ -26,6 +26,7 @@ pub const DIM: Style = Style::new().add_modifier(Modifier::DIM);
 pub struct Status {
     pub name: String,
     pub row: usize,
+    pub modified: bool,
     pub selection: Option<LineRange>,
     pub message: Option<(String, bool)>,
     pub indicators: Vec<Indicator>,
@@ -249,6 +250,11 @@ pub fn draw_status(frame: &mut Frame, area: Rect, spinner: &str, status: &Status
         left.push(Span::styled("  ", DIM));
         left.push(Span::styled(text, style));
     };
+    // Unwritten deletes, flagged as vi flags them. Bold, not dimmed: work
+    // that only exists in memory is exactly the state you must not miss.
+    if status.modified {
+        push("[+]".to_string(), Style::new().add_modifier(Modifier::BOLD));
+    }
     if let Some((first, last)) = status.selection {
         let count = last - first + 1;
         let lines = if count == 1 { "line" } else { "lines" };
@@ -301,12 +307,30 @@ mod tests {
     use ratatui::crossterm::event::KeyCode;
 
     use super::*;
-    use crate::editor::{
-        app::{Mode, SPINNER},
-        goto::PendingGoto,
-        harness::{app, press, render, rows},
-        App,
+    use crate::{
+        buffer::Buffer,
+        editor::{
+            app::{Mode, SPINNER},
+            goto::PendingGoto,
+            harness::{app, press, render, rows, temp_file},
+            App,
+        },
     };
+
+    #[test]
+    fn unwritten_deletes_are_flagged_on_the_status_line() {
+        let path = temp_file("dirty-flag", "one\ntwo\nthree\n");
+        let mut app = App::new(Buffer::from_file(&path).unwrap());
+        let status = |app: &mut App| rows(&render(app, 120, 5))[4].clone();
+        assert!(!status(&mut app).contains("[+]"), "a clean buffer flies no flag");
+
+        press(&mut app, KeyCode::Char('d'));
+        press(&mut app, KeyCode::Char('d'));
+        assert!(status(&mut app).contains("[+]"), "unwritten deletes are visible");
+
+        app.run_command("w");
+        assert!(!status(&mut app).contains("[+]"), ":w takes the flag down");
+    }
 
     #[test]
     fn view_follows_the_cursor() {

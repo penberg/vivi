@@ -8,7 +8,7 @@ pub struct Binding {
     pub help: &'static str,
 }
 
-pub const BINDINGS: [Binding; 18] = [
+pub const BINDINGS: [Binding; 20] = [
     Binding { group: "moving", keys: "h j k l", help: "left, down, up, right (arrows work too)" },
     Binding { group: "moving", keys: "w b", help: "next / previous word" },
     Binding { group: "moving", keys: "0 ^ $", help: "start / first non-blank / end of line" },
@@ -30,6 +30,8 @@ pub const BINDINGS: [Binding; 18] = [
     Binding { group: "selecting", keys: "V", help: "start a linewise selection" },
     Binding { group: "selecting", keys: ":", help: "in a selection, prefills the range `\'<,\'>`" },
     Binding { group: "selecting", keys: "Esc", help: "cancel a selection, or dismiss an error" },
+    Binding { group: "deleting", keys: "dd", help: "delete the current line (:w writes it back)" },
+    Binding { group: "deleting", keys: "d", help: "in a selection, delete the selected lines" },
     Binding { group: "panes", keys: "Ctrl-W w", help: "move between the buffer and the pane" },
     Binding { group: "panes", keys: "Ctrl-W c", help: "close the pane" },
     Binding { group: "panes", keys: "j k Ctrl-D Ctrl-U", help: "scroll the open pane" },
