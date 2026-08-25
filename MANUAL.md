@@ -5,6 +5,7 @@ Everything `vivi` responds to. See [README.md](README.md) for what it is and why
 - [Starting up](#starting-up)
 - [Modes](#modes)
 - [Moving around](#moving-around)
+- [Searching](#searching)
 - [Deleting lines](#deleting-lines)
 - [Ex commands](#ex-commands)
 - [Ranges](#ranges)
@@ -47,6 +48,7 @@ type, is started here too; see [Language servers](#language-servers).
 | Normal | the default | — |
 | Visual Line | `V` or `v` | `Esc`, `V`, `v`, `d` (deleting it), or running a command |
 | Command | `:` | `Enter` runs it, `Esc` cancels, `Backspace` on an empty line cancels |
+| Search | `/` or `?` | `Enter` searches, `Esc` cancels, `Backspace` on an empty line cancels |
 | Output | `:output` or `Ctrl-W w` for the agent's reply, `:help` or `:messages` for a document | `q` or `Esc`, and `Ctrl-W w` / `Ctrl-W c` for the agent pane |
 
 `v` and `V` do the same thing: selection is always linewise, because the
@@ -66,6 +68,9 @@ onto as many rows as it needs, growing upward, with continuation lines lined up
 under the marker. It stops at half the screen and then scrolls to keep the end —
 and the cursor — in view, so nothing ever runs off the right edge and the buffer
 never disappears.
+
+`/` and `?` open the same line for a search, marked with the key that opened
+it — `/ ` or `? ` — so which way it will look is there to see.
 
 **The status line is always the last row.** The input box takes space from the
 buffer above it, never from the status line, so the filename, the spinner and
@@ -96,6 +101,35 @@ boundary between `foo` and `(`.
 
 The cursor keeps a *wanted column*: move down through a short line and back into
 a long one, and it returns to where it was, exactly like vi.
+
+## Searching
+
+| Key | Does |
+| --- | --- |
+| `/text` | search forward for `text`, from the cursor |
+| `?text` | search backward |
+| `n` | the next match, the same way |
+| `N` | the next match, the other way |
+| `/` or `?` alone | the last pattern again, in that direction |
+
+The pattern is plain text, matched exactly: no regular expressions, and no
+case folding. `Enter` runs the search and `Esc` abandons it, leaving the last
+search where it was for `n`.
+
+A search starts just past the cursor, so the match under it is never the one
+found, and wraps round the end of the file. When it wraps the status line says
+so — `search hit BOTTOM, continuing at TOP`, or the reverse — dimmed rather
+than red, because nothing went wrong; it is how you know the next match is
+behind you, or that the one under the cursor is the only one. Matches may
+overlap: `aa` is found twice in `aaa`.
+
+A search is a motion. In a selection it extends the selection to the match
+rather than ending it, and the cursor's wanted column follows it.
+
+| Message | Means |
+| --- | --- |
+| `pattern not found: foo` | the pattern is nowhere in the buffer; the cursor does not move |
+| `no previous search` | `n`, `N`, or a bare `/` before anything has been searched for |
 
 ## Deleting lines
 
@@ -359,11 +393,13 @@ These are all dimmed, not red, because none of them is a failure:
 | `no output to show` | `Ctrl-W w` or `:output` with no pane |
 | `no symbol under the cursor` | `gd` on whitespace or punctuation |
 | `an agent is still working` | `:edit` or a delete while one is running |
+| `search hit BOTTOM, continuing at TOP` | a search wrapped round the end of the file |
 
-Red is kept for mistakes (`not an editor command`, `argument required`) and for
-things that actually broke (a file that will not open, a language server that
-died). Every one of them is a variant of `ViviError` in `error.rs`, so the same
-failure reads the same way wherever it surfaces.
+Red is kept for mistakes (`not an editor command`, `argument required`,
+`pattern not found`) and for things that actually broke (a file that will not
+open, a language server that died). Every one of them is a variant of
+`ViviError` in `error.rs`, so the same failure reads the same way wherever it
+surfaces.
 
 | | |
 | --- | --- |
@@ -509,7 +545,9 @@ no message at all. `Esc` dismisses one.
   The only split is the agent's pane, and it is not another file.
 - One agent job at a time.
 - Only `claude` and `codex` are known agent CLIs.
-- No search (`/`), no marks beyond `'<` and `'>`, no counts before motions.
+- Search is plain text: no regular expressions, no case folding, no
+  highlighting of matches. No marks beyond `'<` and `'>`, and no counts before
+  motions.
 - Jump-to-definition only. No references, hover, completion, diagnostics or
   rename, though the language server could answer all of them.
 - `Ctrl-]` depends on the terminal and keyboard layout; `gd` does not.

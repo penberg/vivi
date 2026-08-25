@@ -187,10 +187,10 @@ fn wrap(lines: &[String], width: u16) -> Vec<String> {
         .collect()
 }
 
-/// The `:` command line: a `> ` marker between two rules. No box — the rules
-/// separate it from the buffer above and the status line below, and nothing
-/// else is needed.
-pub fn draw_input(frame: &mut Frame, area: Rect, command: &str) {
+/// The input line — `> ` for a command, `/ ` or `? ` for a search — between
+/// two rules. No box: the rules separate it from the buffer above and the
+/// status line below, and nothing else is needed.
+pub fn draw_input(frame: &mut Frame, area: Rect, marker: char, command: &str) {
     let rule = "─".repeat(area.width as usize);
     let [top, body, bottom] =
         Layout::vertical([Constraint::Length(1), Constraint::Fill(1), Constraint::Length(1)])
@@ -219,7 +219,7 @@ pub fn draw_input(frame: &mut Frame, area: Rect, command: &str) {
         .enumerate()
         .map(|(i, chunk)| {
             // Only the first row gets the marker; the rest line up under it.
-            let marker = if i == 0 && skipped == 0 { "> " } else { "  " };
+            let marker = if i == 0 && skipped == 0 { format!("{marker} ") } else { "  ".into() };
             Line::from(vec![Span::styled(marker, DIM), Span::from(chunk.clone())])
         })
         .collect();
@@ -231,8 +231,8 @@ pub fn draw_input(frame: &mut Frame, area: Rect, command: &str) {
     frame.set_cursor_position(Position::new(body.x + 2 + column, body.y + row));
 }
 
-/// Columns available for text: the whole width, less the two the `> ` marker
-/// takes and the wrapped lines stay indented under.
+/// Columns available for text: the whole width, less the two the marker takes
+/// and the wrapped lines stay indented under.
 fn input_width(width: u16) -> usize {
     (width as usize).saturating_sub(2).max(1)
 }
@@ -621,6 +621,31 @@ error: Unknown binary 'rust-analyzer' in official toolchain \
                 assert!(!row.contains(corner), "no box: {row:?}");
             }
         }
+    }
+
+    #[test]
+    fn a_search_opens_the_same_line_with_the_key_that_opened_it() {
+        let mut app = app("one\ntwo\nthree\nfour\nfive\nsix");
+        press(&mut app, KeyCode::Char('/'));
+        for c in "two".chars() {
+            press(&mut app, KeyCode::Char(c));
+        }
+        let screen = rows(&render(&mut app, 24, 9));
+        assert_eq!(screen[6], "/ two", "which way it looks is worth a glance: {:?}", screen[6]);
+        assert_eq!(screen[5], "─".repeat(24), "between the same two rules");
+        assert_eq!(screen[7], "─".repeat(24));
+        assert!(screen[8].trim_start().starts_with("[No Name]:1"), "and the status line stays");
+
+        press(&mut app, KeyCode::Esc);
+        press(&mut app, KeyCode::Char('?'));
+        press(&mut app, KeyCode::Char('x'));
+        let screen = rows(&render(&mut app, 24, 9));
+        assert_eq!(screen[6], "? x");
+
+        // Once it runs, the line is gone and the buffer has the whole screen back.
+        press(&mut app, KeyCode::Esc);
+        let screen = rows(&render(&mut app, 24, 9));
+        assert_eq!(screen[..6], ["one", "two", "three", "four", "five", "six"]);
     }
 
     #[test]

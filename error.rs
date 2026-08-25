@@ -41,6 +41,12 @@ pub enum ViviError {
     /// A range we could not read: `3,` with nothing after the comma.
     InvalidRange,
 
+    // --- searching ---
+    /// The pattern is nowhere in the buffer.
+    PatternNotFound(String),
+    /// `n`, or a bare `/`, before anything has been searched for.
+    NoPreviousSearch,
+
     // --- agents ---
     /// Nothing to run: no known agent on PATH, and no override set.
     NoAgent,
@@ -107,6 +113,9 @@ impl fmt::Display for ViviError {
             Self::Unimplemented(name) => write!(f, "{name} is not implemented"),
             Self::MissingArgument(usage) => write!(f, "argument required: {usage}"),
             Self::InvalidRange => write!(f, "invalid range"),
+
+            Self::PatternNotFound(pattern) => write!(f, "pattern not found: {pattern}"),
+            Self::NoPreviousSearch => write!(f, "no previous search"),
 
             Self::NoAgent => {
                 write!(f, "no agent found: install claude or codex, or set {AGENT_ENV}")

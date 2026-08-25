@@ -8,7 +8,7 @@ pub struct Binding {
     pub help: &'static str,
 }
 
-pub const BINDINGS: [Binding; 20] = [
+pub const BINDINGS: [Binding; 22] = [
     Binding { group: "moving", keys: "h j k l", help: "left, down, up, right (arrows work too)" },
     Binding { group: "moving", keys: "w b", help: "next / previous word" },
     Binding { group: "moving", keys: "0 ^ $", help: "start / first non-blank / end of line" },
@@ -16,6 +16,8 @@ pub const BINDINGS: [Binding; 20] = [
     Binding { group: "moving", keys: "Ctrl-D Ctrl-U", help: "half a screen down / up" },
     Binding { group: "moving", keys: "Ctrl-F Ctrl-B", help: "a screen down / up" },
     Binding { group: "moving", keys: "Ctrl-E Ctrl-Y", help: "scroll a line, keeping the cursor" },
+    Binding { group: "searching", keys: "/ ?", help: "search forward / backward for text" },
+    Binding { group: "searching", keys: "n N", help: "next match, the same way / the other way" },
     Binding {
         group: "jumping",
         keys: "gd",

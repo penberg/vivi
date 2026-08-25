@@ -23,6 +23,7 @@ use crate::{
         jump::{self, Jump},
         motion,
         pane::{self, Reader, Scroll},
+        search::Search,
         ui,
     },
     error::ViviError,
@@ -60,6 +61,8 @@ pub enum Mode {
     Normal,
     /// Typing a `:` line, which runs when you press Enter.
     Command,
+    /// Typing a `/` or `?` pattern, which is searched for when you press Enter.
+    Search { backward: bool },
     /// Linewise selection, anchored at `visual_anchor`.
     Visual,
     /// Reading the agent's reply; keys scroll the output pane.
@@ -73,9 +76,11 @@ pub struct App {
     pub buffer: Buffer,
     /// What a keypress means right now.
     pub mode: Mode,
-    /// The `:` line as typed, without the colon. Holds a pending prefix — `g`,
-    /// `^W` — while we wait for the key that finishes it.
+    /// The `:` or `/` line as typed, without the key that opened it. Holds a
+    /// pending prefix — `g`, `^W` — while we wait for the key that finishes it.
     pub command: String,
+    /// The last search, which `n` and `N` repeat.
+    pub last_search: Option<Search>,
     /// What the status line is saying, and whether it is an error.
     pub message: Option<(String, bool)>,
     /// Cursor row, in buffer coordinates.
@@ -131,6 +136,7 @@ impl App {
             buffer,
             mode: Mode::Normal,
             command: String::new(),
+            last_search: None,
             message,
             row: 0,
             col: 0,
@@ -194,6 +200,7 @@ impl App {
         match self.mode {
             Mode::Normal | Mode::Visual => self.on_normal_key(key),
             Mode::Command => self.on_command_key(key),
+            Mode::Search { .. } => self.on_search_key(key),
             Mode::Output => self.on_output_key(key),
         }
     }
@@ -249,6 +256,13 @@ impl App {
 
             KeyCode::Char('w') => self.move_word_forward(),
             KeyCode::Char('b') => self.move_word_backward(),
+
+            // A search is a motion too: it moves the cursor, and in a
+            // selection it extends it.
+            KeyCode::Char('/') => self.start_search(false),
+            KeyCode::Char('?') => self.start_search(true),
+            KeyCode::Char('n') => self.search_again(false),
+            KeyCode::Char('N') => self.search_again(true),
 
             KeyCode::Char('G') => self.goto_line(self.buffer.len() - 1),
             KeyCode::Char('g') if pending_g => self.goto_line(0),
@@ -1060,7 +1074,9 @@ impl App {
     pub fn draw(&mut self, frame: &mut Frame) {
         let full = frame.area();
         let input_height = match self.mode {
-            Mode::Command => ui::input_height(&self.command, full.width, full.height),
+            Mode::Command | Mode::Search { .. } => {
+                ui::input_height(&self.command, full.width, full.height)
+            }
             _ => 0,
         };
         let [main, input, status] = ui::regions(full, input_height);
@@ -1095,13 +1111,23 @@ impl App {
             ui::draw_job(frame, pane, job);
         }
         if input_height > 0 {
-            ui::draw_input(frame, input, &self.command);
+            ui::draw_input(frame, input, self.marker(), &self.command);
         }
         ui::draw_status(frame, status, self.spinner(), &self.status());
 
         if matches!(self.mode, Mode::Normal | Mode::Visual) && input_height == 0 {
             let col = self.cursor_display_col() - self.col_offset;
             ui::place_cursor(frame, body, col, self.row - self.row_offset);
+        }
+    }
+
+    /// What the input line is prefixed with: the key that opened a search,
+    /// since which way it looks is worth seeing, and a plain prompt for `:`.
+    fn marker(&self) -> char {
+        match self.mode {
+            Mode::Search { backward: false } => '/',
+            Mode::Search { backward: true } => '?',
+            _ => '>',
         }
     }
 

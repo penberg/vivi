@@ -10,6 +10,7 @@ pub mod jump;
 pub mod keys;
 pub mod motion;
 pub mod pane;
+pub mod search;
 pub mod ui;
 
 #[cfg(test)]
