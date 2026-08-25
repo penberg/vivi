@@ -21,14 +21,21 @@ pub struct Command {
     pub help: &'static str,
 }
 
-pub const COMMANDS: [Command; 11] = [
-    Command { name: "quit", alias: "q", args: "", help: "quit" },
+pub const COMMANDS: [Command; 13] = [
+    Command { name: "quit", alias: "q", args: "", help: "quit (`:q!` discards unwritten deletes)" },
     Command {
         name: "edit",
         alias: "e",
         args: "<prompt>",
         help: "have the agent edit the range, defaulting to the current line",
     },
+    Command {
+        name: "delete",
+        alias: "d",
+        args: "",
+        help: "delete the range, defaulting to the current line",
+    },
+    Command { name: "write", alias: "w", args: "", help: "write the buffer to the file" },
     Command {
         name: "definition",
         alias: "def",
@@ -235,12 +242,26 @@ mod tests {
     }
 
     #[test]
-    fn commands_accept_a_redundant_bang() {
+    fn a_clean_buffer_quits_with_or_without_the_bang() {
         for word in ["q", "q!", "quit", "quit!"] {
             let mut app = app("hello");
             app.run_command(word);
             assert!(app.quit, ":{word} must quit");
         }
+    }
+
+    #[test]
+    fn quit_refuses_to_drop_unwritten_deletes() {
+        let mut app = app("one\ntwo");
+        app.delete_lines((0, 0));
+        app.run_command("q");
+        assert!(!app.quit, "unwritten deletes hold the door");
+        let (text, is_error) = app.message.clone().unwrap();
+        assert!(is_error && text.contains("no write since last change"), "{text}");
+        assert!(text.contains(":q!"), "and it says the way through: {text}");
+
+        app.run_command("q!");
+        assert!(app.quit, ":q! discards them and quits");
     }
 
     #[test]

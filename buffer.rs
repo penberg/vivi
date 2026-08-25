@@ -11,7 +11,8 @@ use crate::error::ViviError;
 /// command addresses.
 pub type LineRange = (usize, usize);
 
-/// An in-memory, read-only view of a file.
+/// An in-memory view of a file. The one edit it supports is deleting lines,
+/// and an edit lives here until `save` writes it back.
 pub struct Buffer {
     /// Where it came from, or `None` for a buffer with no file behind it.
     pub path: Option<PathBuf>,
@@ -21,6 +22,8 @@ pub struct Buffer {
     pub is_new: bool,
     /// Modification time and size, to notice edits made behind our back.
     pub stamp: Option<(SystemTime, u64)>,
+    /// Set when the buffer holds deletes the file does not — `:w` clears it.
+    pub modified: bool,
 }
 
 impl Buffer {
@@ -45,6 +48,7 @@ impl Buffer {
             lines,
             is_new,
             stamp: file_stamp(path),
+            modified: false,
         })
     }
 
@@ -69,6 +73,35 @@ impl Buffer {
 
     pub fn len(&self) -> usize {
         self.lines.len()
+    }
+
+    /// Remove lines `start..=end`, inclusive and clamped. A buffer always has
+    /// at least one line, so deleting them all leaves a single empty one, as
+    /// vi does. Returns how many lines actually went away.
+    pub fn delete_lines(&mut self, start: usize, end: usize) -> usize {
+        if self.lines.len() == 1 && self.lines[0].is_empty() {
+            return 0;
+        }
+        let end = end.min(self.lines.len() - 1);
+        let removed = self.lines.drain(start..=end).count();
+        if self.lines.is_empty() {
+            self.lines.push(String::new());
+        }
+        self.modified = true;
+        removed
+    }
+
+    /// Write the buffer back to its file, refreshing the stamp so our own
+    /// write is not mistaken for someone else's edit.
+    pub fn save(&mut self) -> Result<(), ViviError> {
+        let Some(path) = &self.path else { return Ok(()) };
+        if let Err(source) = std::fs::write(path, self.text()) {
+            return Err(ViviError::Unwritable { path: path.clone(), source });
+        }
+        self.is_new = false;
+        self.stamp = file_stamp(path);
+        self.modified = false;
+        Ok(())
     }
 }
 
@@ -141,6 +174,51 @@ mod tests {
         app.poll_file();
         assert_eq!(app.buffer.len(), 1);
         assert_eq!((app.row, app.col), (0, 0), "cursor clamped into the shorter file");
+    }
+
+    #[test]
+    fn an_external_write_does_not_clobber_unwritten_deletes() {
+        let path = temp_file("conflict", "one\ntwo\nthree\n");
+        let mut app = App::new(Buffer::from_file(&path).unwrap());
+        app.delete_lines((0, 0));
+        std::fs::write(&path, "rewritten\n").unwrap();
+
+        app.poll_file();
+        assert_eq!(app.buffer.lines, ["two", "three"], "the deletes survive");
+        let (text, is_error) = app.message.clone().unwrap();
+        assert!(is_error && text.contains("changed on disk"), "{text}");
+
+        // Said once, not again on every poll.
+        app.message = None;
+        app.poll_file();
+        assert!(app.message.is_none());
+
+        // `:reload` guards the deletes; the bang is how you choose the disk.
+        app.run_command("reload");
+        assert_eq!(app.buffer.lines, ["two", "three"]);
+        let (text, is_error) = app.message.clone().unwrap();
+        assert!(is_error && text.contains("no write since last change"), "{text}");
+        app.run_command("reload!");
+        assert_eq!(app.buffer.lines, ["rewritten"]);
+        assert!(!app.buffer.modified, "what was discarded is no longer owed");
+    }
+
+    #[test]
+    fn w_overwrites_an_external_edit_when_told_to() {
+        // The conflict message offers `:w` as the other way out: keep the
+        // buffer, and make the file match it.
+        let path = temp_file("conflict-w", "one\ntwo\n");
+        let mut app = App::new(Buffer::from_file(&path).unwrap());
+        app.delete_lines((1, 1));
+        std::fs::write(&path, "someone else\n").unwrap();
+        app.poll_file();
+
+        app.run_command("w");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "one\n");
+        assert!(!app.buffer.modified);
+        app.message = None;
+        app.poll_file();
+        assert!(app.message.is_none(), "the write took the stamp with it");
     }
 
     #[test]

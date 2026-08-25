@@ -23,6 +23,13 @@ pub enum ViviError {
     NotFound(PathBuf),
     /// It is there, but reading it failed — a directory, a permission, a device.
     Unreadable { path: PathBuf, source: io::Error },
+    /// Writing a delete back failed; the file still holds the old contents.
+    Unwritable { path: PathBuf, source: io::Error },
+    /// The buffer holds deletes the file does not, and the command would
+    /// lose or need them. The payload is the way through.
+    Unsaved(String),
+    /// Someone else wrote the file while the buffer holds unwritten deletes.
+    ChangedOnDisk,
 
     // --- ex commands ---
     /// Typed something after `:` that is not in the command table.
@@ -87,6 +94,13 @@ impl fmt::Display for ViviError {
             Self::NotFound(path) => write!(f, "can't find file {}", short_name(path)),
             Self::Unreadable { path, source } => {
                 write!(f, "can't open {}: {source}", short_name(path))
+            }
+            Self::Unwritable { path, source } => {
+                write!(f, "can't write {}: {source}", short_name(path))
+            }
+            Self::Unsaved(hint) => write!(f, "no write since last change — {hint}"),
+            Self::ChangedOnDisk => {
+                write!(f, "file changed on disk — :reload! takes it, :w overwrites it")
             }
 
             Self::UnknownCommand(word) => write!(f, "not an editor command: {word}"),
@@ -154,6 +168,7 @@ impl std::error::Error for ViviError {
         match self {
             Self::Io(e)
             | Self::Unreadable { source: e, .. }
+            | Self::Unwritable { source: e, .. }
             | Self::AgentStartFailed(e)
             | Self::AgentFailed(e)
             | Self::LspStartFailed { source: e, .. } => Some(e),

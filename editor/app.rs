@@ -205,7 +205,8 @@ impl App {
 
         // A pending prefix only survives until the next keypress.
         let pending = std::mem::take(&mut self.command);
-        let (pending_g, pending_window) = (pending == "g", pending == "^W");
+        let (pending_g, pending_d, pending_window) =
+            (pending == "g", pending == "d", pending == "^W");
         // Informational messages are noise once you have moved on, but an error
         // must survive until something replaces it — otherwise the next
         // keystroke erases the only explanation you were going to get.
@@ -256,6 +257,20 @@ impl App {
             // always works.
             KeyCode::Char('d') if pending_g => self.goto_definition(),
             KeyCode::Char('g') => self.command = "g".to_string(),
+
+            // Deleting is linewise, like selection: `dd` takes the current
+            // line, and in a selection one `d` takes the selected lines.
+            KeyCode::Char('d') if self.mode == Mode::Visual => {
+                let range = self.selection().unwrap_or((self.row, self.row));
+                self.mode = Mode::Normal;
+                self.visual_anchor = None;
+                // The lines `'<,'>` pointed at are gone; a range that silently
+                // meant something else would be worse than none.
+                self.last_selection = None;
+                self.delete_lines(range);
+            }
+            KeyCode::Char('d') if pending_d => self.delete_lines((self.row, self.row)),
+            KeyCode::Char('d') => self.command = "d".to_string(),
 
             KeyCode::Char(':') => {
                 self.mode = Mode::Command;
@@ -398,16 +413,26 @@ impl App {
             return;
         }
 
-        // Nothing here can be unsaved, so a trailing `!` is always redundant;
-        // accept it so muscle memory for `:q!` and `:e!` still works.
-        let word = word.strip_suffix('!').unwrap_or(word);
+        // A trailing `!` forces: `:q!` and `:reload!` discard unwritten
+        // deletes. Every other command accepts and ignores it, so muscle
+        // memory for `:e!` stays harmless.
+        let (word, bang) = match word.strip_suffix('!') {
+            Some(word) => (word, true),
+            None => (word, false),
+        };
         let Some(command) = Command::resolve(word) else {
             self.fail(ViviError::UnknownCommand(word.to_string()));
             return;
         };
 
         match command.name {
-            "quit" => self.quit = true,
+            "quit" => {
+                if self.buffer.modified && !bang {
+                    self.fail(ViviError::Unsaved(":q! to discard them".into()));
+                } else {
+                    self.quit = true;
+                }
+            }
             "edit" => {
                 if args.is_empty() {
                     let usage = format!(":{} {}", command.name, command.args);
@@ -417,6 +442,8 @@ impl App {
                     self.ask_agent(range.unwrap_or((self.row, self.row)), args);
                 }
             }
+            "delete" => self.delete_lines(range.unwrap_or((self.row, self.row))),
+            "write" => self.write_file(),
             "definition" => self.goto_definition(),
             "pop" => self.pop_jump(),
             "tag" => self.tag_command(args),
@@ -424,7 +451,9 @@ impl App {
             "lsp" => self.lsp_command(),
             "output" => self.open_pane(),
             "reload" => {
-                if self.reload() {
+                if self.buffer.modified && !bang {
+                    self.fail(ViviError::Unsaved(":reload! to discard them".into()));
+                } else if self.reload() {
                     self.note(format!("\"{}\" reloaded", self.buffer.name()));
                 }
             }
@@ -451,6 +480,12 @@ impl App {
     pub fn ask_agent(&mut self, (start, end): LineRange, prompt: &str) {
         if self.agent_running() {
             self.note("an agent is still working");
+            return;
+        }
+        // The agent reads the file from disk and rewrites it there; deletes
+        // it cannot see would be lost when its edit is reloaded.
+        if self.buffer.modified {
+            self.fail(ViviError::Unsaved(":w them first".into()));
             return;
         }
 
@@ -686,8 +721,27 @@ impl App {
     pub fn poll_file(&mut self) {
         let Some(path) = self.buffer.path.clone() else { return };
         let fresh = file_stamp(&path);
-        if fresh.is_some() && fresh != self.buffer.stamp && self.reload() {
+        if fresh.is_none() || fresh == self.buffer.stamp {
+            return;
+        }
+        // Someone else wrote the file while the buffer holds unwritten
+        // deletes. Reloading would silently discard them, so hold on and say
+        // so — taking the new stamp is what keeps it to once.
+        if self.buffer.modified {
+            self.buffer.stamp = fresh;
+            self.fail(ViviError::ChangedOnDisk);
+            return;
+        }
+        if self.reload() {
             self.note(format!("\"{}\" reloaded", self.buffer.name()));
+        }
+    }
+
+    /// `:write` — put the buffer's deletes on disk, and say so.
+    pub fn write_file(&mut self) {
+        match self.buffer.save() {
+            Ok(()) => self.note(format!("\"{}\" written", self.buffer.name())),
+            Err(error) => self.fail(error),
         }
     }
 
@@ -1069,6 +1123,7 @@ impl App {
         ui::Status {
             name: self.buffer.name(),
             row: self.row,
+            modified: self.buffer.modified,
             selection: self.selection(),
             message: self.message.clone(),
             indicators,

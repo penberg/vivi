@@ -17,7 +17,13 @@ use crate::{
 /// An unnamed buffer over `text`, with a four-line window and nothing said yet.
 pub fn app(text: &str) -> App {
     let lines: Vec<String> = text.split('\n').map(str::to_string).collect();
-    let mut app = App::new(Buffer { path: None, lines, is_new: false, stamp: None });
+    let mut app = App::new(Buffer {
+        path: None,
+        lines,
+        is_new: false,
+        stamp: None,
+        modified: false,
+    });
     app.view_height = 4;
     app.message = None;
     app

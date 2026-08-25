@@ -4,6 +4,7 @@
 
 pub mod app;
 pub mod cmd;
+pub mod delete;
 pub mod goto;
 pub mod jump;
 pub mod keys;
